@@ -103,6 +103,10 @@ class Game {
   private enemies: Inimigo[] = [];
   private starfieldFar!: Starfield;
   private starfieldNear!: Starfield;
+  // camadas de background (parallax)
+  private bgLayerFar?: PIXI.TilingSprite;
+  private bgLayerMid?: PIXI.TilingSprite;
+  private bgLayerNear?: PIXI.TilingSprite;
 
   // áudio de coleta de pólen
   private pollenAudio!: HTMLAudioElement;
@@ -153,7 +157,50 @@ class Game {
       // (ex.: testes de servidor)
     }
 
-    // estrelas
+    // tenta carregar camadas de fundo com fallback para /fundo.svg
+    // (cria as camadas somente quando a imagem for carregada)
+    try {
+      const tryCreateBgFromImage = (img: HTMLImageElement) => {
+        try {
+          const tex = PIXI.Texture.from(img);
+          // camadas: far (menor movimento), mid (médio), near (maior movimento)
+          this.bgLayerFar = new PIXI.TilingSprite(tex, GAME_WIDTH, GAME_HEIGHT);
+          this.bgLayerFar.tileScale.set(1);
+          this.bgLayerFar.alpha = 1.0;
+          this.bgLayerMid = new PIXI.TilingSprite(tex, GAME_WIDTH, GAME_HEIGHT);
+          this.bgLayerMid.tileScale.set(1);
+          this.bgLayerMid.alpha = 1.0;
+          this.bgLayerNear = new PIXI.TilingSprite(tex, GAME_WIDTH, GAME_HEIGHT);
+          this.bgLayerNear.tileScale.set(1);
+          this.bgLayerNear.alpha = 1.0;
+
+          // adiciona as camadas atrás de tudo (em ordem)
+          this.rootContainer.addChildAt(this.bgLayerFar, 0);
+          this.rootContainer.addChildAt(this.bgLayerMid, 1);
+          this.rootContainer.addChildAt(this.bgLayerNear, 2);
+        } catch (err) {
+          // ignore erro ao criar textura
+        }
+      };
+
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => tryCreateBgFromImage(img);
+      img.onerror = () => {
+        const img2 = new Image();
+        img2.crossOrigin = 'anonymous';
+        img2.onload = () => tryCreateBgFromImage(img2);
+        img2.onerror = () => {
+          // nenhum fundo disponível — continua sem camadas de imagem
+        };
+        img2.src = '/fundo.svg';
+      };
+      img.src = '/fundo.png';
+    } catch (e) {
+      // ambiente sem DOM ou Image (testes) — ignora
+    }
+
+    // estrelas (sobre as camadas de fundo)
     this.starfieldFar = new Starfield(GAME_WIDTH, GAME_HEIGHT, 100, 0.4);
     this.starfieldNear = new Starfield(GAME_WIDTH, GAME_HEIGHT, 50, 1.0);
     this.rootContainer.addChild(this.starfieldFar);
@@ -423,6 +470,22 @@ class Game {
       this.player.update(delta);
       this.player.step(delta);
       this.enemies.forEach(enemy => enemy.update(delta, 1, this.player.x, this.player.y));
+
+      // atualiza parallax das camadas de fundo (se existirem)
+      try {
+        if (this.bgLayerFar) {
+          // deslocamento baseado no tempo e levemente no movimento do jogador
+          this.bgLayerFar.tilePosition.x += 0.02 * delta + (this.player.vx * 0.02);
+        }
+        if (this.bgLayerMid) {
+          this.bgLayerMid.tilePosition.x += 0.06 * delta + (this.player.vx * 0.04);
+        }
+        if (this.bgLayerNear) {
+          this.bgLayerNear.tilePosition.x += 0.12 * delta + (this.player.vx * 0.08);
+        }
+      } catch (e) {
+        // ignore se algo falhar ao atualizar o parallax
+      }
 
       this.starfieldFar.update(delta);
       this.starfieldNear.update(delta);
