@@ -440,6 +440,8 @@ class Game {
   private restart() {
     // remove ticker callback by resetting stage and re-init
     // this.app.ticker.removeAllListeners();
+    // garantir que qualquer áudio em reprodução pare
+    this.stopAllSounds();
     this.pollens = []; this.flores = []; this.enemies = [];
     this.rootContainer.removeChildren();
     this.gameState = 'playing';
@@ -448,9 +450,24 @@ class Game {
 
   private destroyAndBackToMenu() {
     // this.app.ticker.removeAllListeners();
+    // garantir parada de áudio antes de voltar ao menu
+    this.stopAllSounds();
     this.app.stage.removeChildren();
     // sinaliza ao código externo que deve mostrar menu novamente
     showMenu(this.app);
+  }
+
+  // para com segurança todos os áudios do jogo (seguro para ambientes sem áudio)
+  private stopAllSounds() {
+    try {
+      const list = [this.pollenAudio, this.flowerAudio, this.gameOverAudio, this.victoryAudio, this.failureAudio];
+      for (const a of list) {
+        if (!a) continue;
+        try { a.pause(); a.currentTime = 0; } catch (e) { /* ignore */ }
+      }
+    } catch (e) {
+      // ambientes sem DOM/audio — ignora
+    }
   }
 
   private gameLoop(delta: number) {

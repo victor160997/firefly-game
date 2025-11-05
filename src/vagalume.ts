@@ -11,7 +11,6 @@ export class Vagalume extends PIXI.Container {
     private leftWing: PIXI.Graphics;
     private rightWing: PIXI.Graphics;
     private wingAngle = 0;
-    private wingDir = 1;
     private wingSpeed = 0.55;
     private static glowTexture: PIXI.Texture;
     private glowSprite: PIXI.Sprite;
@@ -105,8 +104,8 @@ export class Vagalume extends PIXI.Container {
     }
 
     private updateWings(delta: number) {
-        this.wingAngle += delta * this.wingSpeed * this.wingDir;
-        if (Math.abs(this.wingAngle) > 0.7) this.wingDir *= -1;
+    // incrementa o ângulo continuamente (sin() já gera a oscilação)
+    this.wingAngle += delta * this.wingSpeed;
         const wingFlap = Math.sin(this.wingAngle) * 5;
         const wingAlpha = 0.25 + (this.light / 100) * 0.45;
 
@@ -146,7 +145,7 @@ export class Vagalume extends PIXI.Container {
         this.updateGlow();
     }
 
-    public update(delta: number) {
+    public update(_delta: number) {
         // Aceleração baseada no knockback
         this.vx += this.knockbackVx;
         this.vy += this.knockbackVy;
