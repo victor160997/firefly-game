@@ -4,6 +4,15 @@ import { FlorFarol } from './flor-farol';
 import { Polen } from './polen';
 import { ENEMY_LIGHT_PENALTY, FLOWER_LIGHT_COST, GAME_HEIGHT, GAME_WIDTH, LIGHT_DECAY_RATE, PLAYER_SPEED, POLLEN_COUNT as DEFAULT_POLLEN_COUNT, POLLEN_LIGHT_VALUE } from './utils/consts';
 import { Inimigo } from './enemy';
+import { Rock } from './rock';
+
+// Balance constants
+const ROCK_SPAWN_INTERVAL_STAGE2 = 110; // frames (higher -> less frequent)
+const ROCK_SPAWN_INTERVAL_STAGE3 = 80;
+const ROCK_DAMAGE_BASE = 14;
+const ROCK_DAMAGE_STAGE_INCREMENT = 6;
+const BOSS_ROCK_DAMAGE = 20;
+const BIG_FLOWER_LIGHT = 140;
 
 // CLASSE STARFIELD PARA O CÉU REALISTA E DINÂMICO (COM PARALAXE)
 class Starfield extends PIXI.Container {
@@ -101,6 +110,11 @@ class Game {
   private pollens: Polen[] = [];
   private flores: FlorFarol[] = [];
   private enemies: Inimigo[] = [];
+  // rocks / projectiles
+  private rocks: Rock[] = [];
+  private rockSpawnTimer = 0;
+  private boss: Inimigo | null = null;
+  private bossShootTimer = 0;
   private starfieldFar!: Starfield;
   private starfieldNear!: Starfield;
   // camadas de background (parallax)
@@ -120,6 +134,12 @@ class Game {
   private lightBarBorder!: PIXI.Graphics;
   private lightText!: PIXI.Text;
   private gameState: 'playing' | 'gameOver' | 'win' = 'playing';
+
+  // fase atual (1..3)
+  private stage = 1;
+
+  // ticker callback reference (to avoid duplicate subscriptions)
+  private tickerCallback?: PIXI.TickerCallback<PIXI.Ticker>;
 
   private settings: LevelSettings;
   private rootContainer = new PIXI.Container();
@@ -227,12 +247,81 @@ class Game {
     }
 
     // player
-    this.player = new Vagalume();
-    this.rootContainer.addChild(this.player);
-    this.player.initTrails(this.rootContainer);
+  this.player = new Vagalume();
+  this.rootContainer.addChild(this.player);
+  this.player.initTrails(this.rootContainer);
 
     this.createUI();
-    this.app.ticker.add((ticker) => this.gameLoop(ticker.deltaTime));
+    // garantir apenas uma inscrição no ticker
+    if (this.tickerCallback) this.app.ticker.remove(this.tickerCallback);
+    this.tickerCallback = (ticker: PIXI.Ticker) => this.gameLoop((ticker as any).deltaTime ?? 1);
+    this.app.ticker.add(this.tickerCallback);
+  }
+
+  // Avança para a próxima fase (1->2->3). Reconfigura inimigos/obstáculos/flores conforme a fase.
+  private advanceStage() {
+    this.stage++;
+    // debug log to help trace freezes
+    // eslint-disable-next-line no-console
+    console.log(`Advancing to stage ${this.stage}`);
+    // limpa entidades da fase anterior
+    this.pollens = []; this.flores = []; this.enemies = []; this.rocks = [];
+    this.boss = null;
+    this.rockSpawnTimer = 0; this.bossShootTimer = 0;
+
+    // remove filhos da camada raiz (mas preserva UI adicionada separadamente)
+    this.rootContainer.removeChildren();
+
+    // recria elementos de cena básicos: starfields e campos (sem camadas de imagem complexas)
+    this.starfieldFar = new Starfield(GAME_WIDTH, GAME_HEIGHT, 100, 0.4);
+    this.starfieldNear = new Starfield(GAME_WIDTH, GAME_HEIGHT, 50, 1.0);
+    this.rootContainer.addChild(this.starfieldFar);
+    this.rootContainer.addChild(this.starfieldNear);
+
+    // fase 2: várias flores e pólens + pedras caindo
+    if (this.stage === 2) {
+      const spacingX = GAME_WIDTH / 5;
+      for (let i = 0; i < 4; i++) {
+        const f = new FlorFarol((i + 1) * spacingX, 120 + Math.random() * (GAME_HEIGHT - 240));
+        this.flores.push(f);
+        this.rootContainer.addChild(f);
+      }
+      for (let i = 0; i < 12; i++) { const p = new Polen(); this.pollens.push(p); this.rootContainer.addChild(p); }
+      // inimigos leves
+      for (let i = 0; i < 3; i++) { const e = new Inimigo(Math.random() * GAME_WIDTH, Math.random() * GAME_HEIGHT); this.enemies.push(e); this.rootContainer.addChild(e); }
+    }
+
+    // fase 3: boss + 1 flor grande que precisa de mais luz
+    if (this.stage === 3) {
+      // boss (super inimigo)
+      this.boss = new Inimigo(GAME_WIDTH / 2, 80);
+      this.rootContainer.addChild(this.boss);
+      // 1 flor grande
+      const big = new FlorFarol(GAME_WIDTH / 2, GAME_HEIGHT - 160);
+      big.requiredLightTotal = BIG_FLOWER_LIGHT; // precisa de mais luz (acumulação)
+      this.flores.push(big);
+      this.rootContainer.addChild(big);
+      // pólens para coletar
+      for (let i = 0; i < 10; i++) { const p = new Polen(); this.pollens.push(p); this.rootContainer.addChild(p); }
+    }
+
+    // re-add player and UI (player trails)
+    this.rootContainer.addChild(this.player);
+    this.player.initTrails(this.rootContainer);
+    this.createUI();
+    // spawn an initial rock immediately when entering stage >=2 to ensure spawn system is active
+    if (this.stage >= 2) {
+      const rx = Math.random() * GAME_WIDTH;
+      const vy = 2 + Math.random() * 2 + (this.stage - 1) * 0.5;
+      const vx = (Math.random() - 0.5) * 0.6;
+      const size = 6 + Math.random() * 6;
+      const damage = ROCK_DAMAGE_BASE + (this.stage - 1) * ROCK_DAMAGE_STAGE_INCREMENT;
+      // eslint-disable-next-line no-console
+      console.log('Initial rock spawn for stage', this.stage, { rx, vy, vx, size, damage });
+      const rock = new Rock(rx, -10, vx, vy, damage, size);
+      this.rootContainer.addChild(rock.display);
+      this.rocks.push(rock);
+    }
   }
 
   private createUI() {
@@ -358,11 +447,26 @@ class Game {
       if (!flor.isLit) {
         const dx = this.player.x - flor.x; const dy = this.player.y - flor.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-         if (distance < 20 && this.player.light >= 90) { 
-           flor.lightUp(); 
-           this.player.loseLight(FLOWER_LIGHT_COST); 
-           this.playFlowerSound(); 
-         }
+        if (distance < 20) {
+          // fase normal: acende direto se jogador tiver luz suficiente
+          if (this.stage < 3) {
+            if (this.player.light >= 90) {
+              flor.lightUp();
+              this.player.loseLight(FLOWER_LIGHT_COST);
+              this.playFlowerSound();
+            }
+          } else {
+            // fase 3: a flor é maior e precisa ser preenchida aos poucos
+            if (this.player.light >= FLOWER_LIGHT_COST) {
+              const finished = flor.addLight(FLOWER_LIGHT_COST);
+              this.player.loseLight(FLOWER_LIGHT_COST);
+              this.playFlowerSound();
+              if (finished) {
+                // vitória da fase será tratada no loop principal
+              }
+            }
+          }
+        }
       }
     }
 
@@ -472,7 +576,8 @@ class Game {
 
   private gameLoop(delta: number) {
     if (this.gameState === 'playing') {
-      this.player.vx = 0; this.player.vy = 0;
+      try {
+        this.player.vx = 0; this.player.vy = 0;
       if (keyboard['ArrowUp'] || keyboard['KeyW']) this.player.vy = -1;
       if (keyboard['ArrowDown'] || keyboard['KeyS']) this.player.vy = 1;
       if (keyboard['ArrowLeft'] || keyboard['KeyA']) this.player.vx = -1;
@@ -487,6 +592,68 @@ class Game {
       this.player.update(delta);
       this.player.step(delta);
       this.enemies.forEach(enemy => enemy.update(delta, 1, this.player.x, this.player.y));
+
+      // fase 2: pedras caindo aleatoriamente
+      if (this.stage >= 2) {
+        this.rockSpawnTimer -= delta;
+  const spawnInterval = (this.stage === 2) ? ROCK_SPAWN_INTERVAL_STAGE2 : ROCK_SPAWN_INTERVAL_STAGE3; // frames
+        if (this.rockSpawnTimer <= 0) {
+          this.rockSpawnTimer = spawnInterval + Math.random() * 30;
+          // spawn na parte de cima aleatória
+          const rx = Math.random() * GAME_WIDTH;
+          const vy = 2 + Math.random() * 2 + (this.stage - 1) * 0.5;
+          const vx = (Math.random() - 0.5) * 0.6;
+          const size = 6 + Math.random() * 6;
+          const damage = ROCK_DAMAGE_BASE + (this.stage - 1) * ROCK_DAMAGE_STAGE_INCREMENT;
+          // debug
+          // eslint-disable-next-line no-console
+          console.log('Spawning rock', { stage: this.stage, rx, vy, vx, size, damage, timer: this.rockSpawnTimer });
+          const rock = new Rock(rx, -10, vx, vy, damage, size);
+          this.rootContainer.addChild(rock.display);
+          this.rocks.push(rock);
+        }
+      }
+
+      // atualiza projectiles/rocks
+      for (let i = this.rocks.length - 1; i >= 0; i--) {
+        const r = this.rocks[i];
+        r.update(delta);
+        // colisão com player
+        if (r.collidesWith(this.player.x, this.player.y, 16)) {
+          this.player.loseLight(r.damage);
+          this.playFailureSound();
+          // efeito visual pequeno
+          const hit = new PIXI.Graphics(); hit.beginFill(0xFF4444, 0.6); hit.drawCircle(this.player.x, this.player.y, 14); hit.endFill();
+          this.rootContainer.addChild(hit);
+          setTimeout(() => { hit.parent?.removeChild(hit); }, 120);
+          r.destroy();
+          this.rocks.splice(i, 1);
+          continue;
+        }
+        // fora da tela
+        if (r.isOffscreen(GAME_WIDTH, GAME_HEIGHT)) {
+          r.destroy();
+          this.rocks.splice(i, 1);
+        }
+      }
+
+      // fase 3: boss lógica (persegue e atira)
+      if (this.stage === 3 && this.boss) {
+        this.boss.update(delta, 1.2, this.player.x, this.player.y);
+        this.bossShootTimer -= delta;
+        if (this.bossShootTimer <= 0) {
+          this.bossShootTimer = 80 + Math.random() * 40; // frames
+          // shoot rock from boss towards player
+          const bx = this.boss.x; const by = this.boss.y;
+          const dx = this.player.x - bx; const dy = this.player.y - by; const dist = Math.hypot(dx, dy) || 1;
+          const speed = 3.5 + Math.random() * 1.5;
+          const vx = (dx / dist) * speed;
+          const vy = (dy / dist) * speed;
+          const rock = new Rock(bx, by, vx, vy, BOSS_ROCK_DAMAGE, 8);
+          this.rootContainer.addChild(rock.display);
+          this.rocks.push(rock);
+        }
+      }
 
       // atualiza parallax das camadas de fundo (se existirem)
       try {
@@ -507,8 +674,20 @@ class Game {
       this.starfieldFar.update(delta);
       this.starfieldNear.update(delta);
 
-      if (this.player.light <= 0) { this.endGame(false); }
-      else if (this.flores.every(f => f.isLit)) { this.endGame(true); }
+        if (this.player.light <= 0) { this.endGame(false); }
+        else if (this.flores.length > 0 && this.flores.every(f => f.isLit)) {
+          if (this.stage < 3) {
+            // avança de fase ao completar a fase atual
+            this.advanceStage();
+          } else {
+            this.endGame(true);
+          }
+        }
+      } catch (err) {
+        // log the error so it isn't swallowed and stops the ticker silently
+        // eslint-disable-next-line no-console
+        console.error('Error in gameLoop:', err);
+      }
     }
     this.updateUI();
   }

@@ -2,6 +2,9 @@ import * as PIXI from 'pixi.js';
 
 export class FlorFarol extends PIXI.Container {
   public isLit = false;
+  // quantidade de 'luz' necessária para acender (útil para flores maiores)
+  public requiredLightTotal = 90;
+  public currentLight = 0;
   private petals: PIXI.Graphics;
   private center: PIXI.Graphics;
   private stem: PIXI.Graphics; 
@@ -73,6 +76,7 @@ export class FlorFarol extends PIXI.Container {
 
   drawUnlit(canBeLit: boolean = false) {
     this.isLit = false;
+    this.currentLight = 0;
     this.petals.clear();
     this.center.clear();
     this.drawStem(false); 
@@ -110,6 +114,20 @@ export class FlorFarol extends PIXI.Container {
     }
 
     this.glow.alpha = 0;
+  }
+
+  // adiciona luz à flor (retorna true se ficou totalmente acesa)
+  public addLight(amount: number) {
+    if (this.isLit) return true;
+    this.currentLight += amount;
+    if (this.currentLight >= this.requiredLightTotal) {
+      this.lightUp();
+      return true;
+    }
+    // opcional: atualizar brilho parcial
+    this.glow.alpha = Math.min(0.85, (this.currentLight / this.requiredLightTotal) * 0.9);
+    this.glow.scale.set(0.6 + (this.currentLight / this.requiredLightTotal) * 0.6);
+    return false;
   }
 
   lightUp() {
