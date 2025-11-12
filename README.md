@@ -10,8 +10,6 @@
 
 Versão: 1.0
 
-> Substitua os nomes e RAs dos integrantes acima antes da entrega final.
-
 Este README contém a documentação técnica e de design do jogo Noctilume: ideia, mecânicas, arquitetura, como executar localmente, requisitos, convenções de assets e dicas de desenvolvimento.
 
 ## Sumário
