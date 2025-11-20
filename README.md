@@ -203,6 +203,6 @@ Registro de issues/bugs: usar o GitHub Issues e referenciar o arquivo/linha quan
 
 - Motor de renderização: Pixi.js
 - Trabalho desenvolvido para a disciplina de Jogos Digitais
-- Imagens/sounds: (colocar créditos reais aqui se forem de terceiros)
+- Imagens/sounds: FreeSound
 
 ---
